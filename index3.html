@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Open iPhone Camera</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      height: 100%;
+      width: 100%;
+    }
+    video, canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+    }
+  </style>
+</head>
+<body>
+  <video id="camera" width="720" height="560" autoplay playsinline></video>
+  <canvas id="overlay"></canvas>
+
+  <!-- FaceAPI + Gifler -->
+  <script src="face-api.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gifler@0.1.0/gifler.min.js"></script>
+
+  <script>
+    const video = document.getElementById('camera');
+    const canvas = document.getElementById('overlay');
+    const ctx = canvas.getContext('2d');
+    let gifCanvas = document.createElement('canvas');
+    let imageSize = 400;
+    gifCanvas.width = imageSize;
+    gifCanvas.height = imageSize;
+    const gifCtx = gifCanvas.getContext('2d');
+    let noseX = 0, noseY = 0;
+
+    async function startCamera() {
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then(stream => {
+          video.srcObject = stream;
+        })
+        .catch(err => {
+          alert('Camera access denied or unavailable: ' + err);
+        });
+    }
+
+    async function loadModels() {
+      const MODEL_URL = './models';
+      await Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+        faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
+      ]);
+    }
+
+    gifler('images/connect.gif').get(animation => {
+      animation.animateInCanvas(gifCanvas);
+    });
+
+    video.addEventListener('play', () => {
+      const updateSize = () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      };
+
+      updateSize();
+
+      setInterval(async () => {
+        const displaySize = { width: canvas.width, height: canvas.height };
+        faceapi.matchDimensions(canvas, displaySize);
+
+        const detections = await faceapi.detectAllFaces(
+          video,
+          new faceapi.TinyFaceDetectorOptions()
+        ).withFaceLandmarks(true);
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const resized = faceapi.resizeResults(detections, displaySize);
+        resized.forEach(det => {
+          const nose = det.landmarks.getNose();
+          const noseTip = nose[3];
+
+          noseX = noseTip.x - imageSize / 2;
+          noseY = noseTip.y - imageSize / 2;
+
+          ctx.drawImage(gifCanvas, noseX, noseY, imageSize, imageSize);
+        });
+      }, 1000 / 30);
+    });
+
+    loadModels().then(startCamera);
+  </script>
+</body>
+</html>
