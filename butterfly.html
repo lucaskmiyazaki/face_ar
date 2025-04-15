@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Open iPhone Camera</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      height: 100%;
+      width: 100%;
+    }
+    video, canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+    }
+    #gif-source {
+      display: none; /* hidden, but used for drawing */
+    }
+  </style>
+</head>
+<body>
+  <video id="camera" width="720" height="560" autoplay playsinline></video>
+  <canvas id="overlay"></canvas>
+  <img id="gif-source" src="images/beyond.png" />
+
+  <!-- FaceAPI + Gifler -->
+  <script src="face-api.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gifler@0.1.0/gifler.min.js"></script>
+
+  <script>
+    const video = document.getElementById('camera');
+    const canvas = document.getElementById('overlay');
+    const ctx = canvas.getContext('2d');
+    const gif = document.getElementById('gif-source');
+    let lastTime = Date.now();
+    let isMirrored = false;
+    
+    let noseX = 0, noseY = 0;
+
+    async function startCamera() {
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then(stream => {
+          video.srcObject = stream;
+        })
+        .catch(err => {
+          alert('Camera access denied or unavailable: ' + err);
+        });
+    }
+
+    async function loadModels() {
+      const MODEL_URL = './models';
+      await Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+        faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
+      ]);
+    }
+
+    video.addEventListener('play', () => {
+      const displaySize = { width: video.width, height: video.height };
+      faceapi.matchDimensions(canvas, displaySize);
+
+      setInterval(async () => {
+        const detections = await faceapi.detectAllFaces(
+          video,
+          new faceapi.TinyFaceDetectorOptions()
+        ).withFaceLandmarks(true);
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        let dislocation = 0;
+        let time = Date.now() - lastTime;
+        if (time > 4000){
+          lastTime = Date.now();
+          if (isMirrored){
+            isMirrored = false;
+          } else{
+            isMirrored = true;
+          }
+        } else{
+          dislocation = time * 0.2;
+        }
+
+        const resized = faceapi.resizeResults(detections, displaySize);
+        resized.forEach(det => {
+          const nose = det.landmarks.getNose();
+          const noseTip = nose[3]; // Tip of the nose
+
+          const size = 50; // smaller size for GIF
+
+          ctx.save();
+
+          if (isMirrored){
+            ctx.scale(-1, 1); // Flip horizontally
+            ctx.drawImage(gif, -(noseTip.x - size / 2 - dislocation), noseTip.y - size / 2 - dislocation, size, size);
+          } else{
+            ctx.scale(1, 1); // Flip horizontally
+            ctx.drawImage(gif, (noseTip.x - size / 2 + dislocation), noseTip.y - size / 2 - dislocation, size, size);
+          }
+
+          ctx.restore();
+
+        });
+      }, 20); // ~30 fps
+    });
+
+    loadModels().then(startCamera);
+  </script>
+</body>
+</html>
